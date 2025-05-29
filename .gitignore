@@ -21,12 +21,22 @@ wheels/
 .installed.cfg
 *.egg
 
-# Ses ve görsel dosyaları
+# Virtual Environment
+venv/
+ENV/
+
+# Audio files
 *.wav
 *.mp3
-*.png
-*.jpg
-*.jpeg
+*.ogg
+*.flac
+*.aiff
+*.m4a
+*.wma
+
+# Output files
+output_remix.wav
+remix_analysis.png
 
 # IDE
 .idea/
@@ -34,12 +44,6 @@ wheels/
 *.swp
 *.swo
 
-# Ortam
-.env
-.venv
-venv/
-ENV/
-
-# Diğer
+# OS
 .DS_Store
-Thumbs.db 
+Thumbs.db

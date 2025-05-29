@@ -1,2 +1,28 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Audio files
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary
+*.aiff binary
+*.m4a binary
+*.wma binary
+
+# Python files
+*.py text diff=python
+*.pyw text diff=python
+*.pyi text diff=python
+
+# Data files
+*.npy binary
+*.npz binary
+*.h5 binary
+*.pkl binary
+*.model binary
+
+# Visualization outputs
+*.png binary
+*.jpg binary
+*.pdf binary
