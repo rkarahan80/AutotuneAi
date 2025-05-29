@@ -1,21 +1,25 @@
-# 🎵 AutotuneAI
+# 🎵 Premiermixx
 
-AutotuneAI, yapay zeka destekli açık kaynaklı bir ses işleme ve autotune uygulamasıdır. Ses kayıtlarınızı otomatik olarak düzeltir, efektler ekler ve detaylı analizler sunar.
+Premiermixx, yapay zeka destekli açık kaynaklı bir müzik remix uygulamasıdır. Müzik parçalarınızı profesyonel düzeyde remixlemenize, efektler eklemenize ve detaylı analizler yapmanıza olanak sağlar.
 
 ## ✨ Özellikler
 
-- 🎯 Otomatik pitch düzeltme (Autotune)
-- 🔊 Ses efektleri (Eko, Reverb)
-- ⚡ Hız ayarlama
-- 📊 Detaylı ses analizi
-- 📈 Görsel grafikler (Dalga formu ve Spektrogram)
+- 🎚️ Tempo değiştirme ve beat senkronizasyonu
+- 🎛️ Pitch shifting (perde kaydırma)
+- 🔊 Profesyonel efektler:
+  - Delay
+  - Flanger
+  - Filtreler
+- 🔄 Loop oluşturma
+- 📊 Beat analizi
+- 📈 Remix görselleştirme
 
 ## 🚀 Kurulum
 
 1. Repoyu klonlayın:
 ```bash
-git clone https://github.com/yourusername/AutotuneAI.git
-cd AutotuneAI
+git clone https://github.com/yourusername/Premiermixx.git
+cd Premiermixx
 ```
 
 2. Gerekli kütüphaneleri yükleyin:
@@ -25,7 +29,7 @@ pip install -r requirements.txt
 
 ## 💻 Kullanım
 
-1. İşlemek istediğiniz ses dosyasını `input.wav` olarak kaydedin
+1. Remixlemek istediğiniz ses dosyasını `input.wav` olarak kaydedin
 2. Programı çalıştırın:
 ```bash
 python main.py
@@ -34,21 +38,18 @@ python main.py
 ### Parametreler
 
 ```python
-processor = AudioProcessor("input.wav", "output.wav")
-processor.process(
-    add_effects=True,     # Efektleri aktif/pasif yapar
-    speed_factor=1.0,     # Ses hızı (1.0 = normal)
-    analyze=True,         # Ses analizi yapar
-    visualize=True        # Grafikleri oluşturur
+remixer = Premiermixx("input.wav", "output_remix.wav")
+remixer.process_remix(
+    tempo_change=1.2,      # Tempo çarpanı (1.0 = normal)
+    pitch_steps=2,         # Perde kaydırma adımı
+    add_effects=True       # Efektleri aktif/pasif yapar
 )
 ```
 
 ## 📊 Çıktılar
 
-- `output_processed.wav`: İşlenmiş ses dosyası
-- `waveform.png`: Ses dalgası grafiği
-- `spectrogram.png`: Spektrogram görüntüsü
-- Detaylı ses analizi sonuçları
+- `output_remix.wav`: Remixlenmiş ses dosyası
+- `remix_analysis.png`: Remix analiz grafiği (dalga formu ve spektrogram)
 
 ## 🤝 Katkıda Bulunma
 
@@ -70,4 +71,4 @@ Bu proje aşağıdaki açık kaynak kütüphaneleri kullanmaktadır:
 - scipy
 - pyworld
 - soundfile
-- matplotlib 
+- matplotlib

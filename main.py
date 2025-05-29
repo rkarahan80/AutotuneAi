@@ -1,6 +1,6 @@
 """
-AutotuneAI - Yapay Zeka Destekli Ses İşleme ve Autotune Sistemi
-Copyright (c) 2024 AutotuneAI
+Premiermixx - Yapay Zeka Destekli Müzik Remix Sistemi
+Copyright (c) 2024 Premiermixx
 MIT License - Detaylar için LICENSE dosyasına bakın
 """
 
@@ -13,160 +13,139 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import os
 
-class AutotuneAI:
+class Premiermixx:
     def __init__(self, input_file, output_file):
         self.input_file = input_file
         self.output_file = output_file
         self.audio = None
         self.sr = None
-        self.corrected_audio = None
+        self.processed_audio = None
         
     def load_audio(self):
         """Ses dosyasını yükle"""
         self.audio, self.sr = librosa.load(self.input_file, sr=None)
         
-    def pitch_correction(self, threshold=0.3):
-        """Pitch düzeltme işlemi"""
-        # Pitch tespiti
-        pitches, magnitudes = librosa.piptrack(y=self.audio, sr=self.sr)
-        
-        # En belirgin pitch'i seç
-        pitch_median = medfilt(np.mean(pitches, axis=0), kernel_size=11)
-        
-        # WORLD vocoderi ile ses işleme
-        _f0, t = pw.dio(self.audio.astype(np.float64), self.sr)
-        f0 = pw.stonemask(self.audio.astype(np.float64), _f0, t, self.sr)
-        sp = pw.cheaptrick(self.audio.astype(np.float64), f0, t, self.sr)
-        ap = pw.d4c(self.audio.astype(np.float64), f0, t, self.sr)
-        
-        # Pitch düzeltme
-        f0_corrected = np.copy(f0)
-        for i in range(len(f0)):
-            if f0[i] > 0:
-                f0_corrected[i] = self.adjust_to_nearest_note(f0[i])
-        
-        self.corrected_audio = pw.synthesize(f0_corrected, sp, ap, self.sr)
-        
-    def adjust_to_nearest_note(self, freq):
-        """En yakın müzikal notaya ayarlama"""
-        A4 = 440.0
-        notes = 12 * np.log2(freq / A4)
-        notes = np.round(notes)
-        return A4 * 2.0 ** (notes / 12.0)
+    def apply_beat_detection(self):
+        """Ritim tespiti ve senkronizasyonu"""
+        tempo, beat_frames = librosa.beat.beat_track(y=self.audio, sr=self.sr)
+        beat_times = librosa.frames_to_time(beat_frames, sr=self.sr)
+        return tempo, beat_times
     
-    def add_echo(self, delay=0.3, decay=0.5):
-        """Ses kaydına eko efekti ekle"""
-        delay_samples = int(self.sr * delay)
-        echo = np.zeros_like(self.audio)
-        echo[delay_samples:] = self.audio[:-delay_samples] * decay
-        self.audio = self.audio + echo
+    def time_stretch(self, rate=1.0):
+        """Zaman uzatma/kısaltma efekti"""
+        self.audio = librosa.effects.time_stretch(self.audio, rate=rate)
         
-    def change_speed(self, speed_factor):
-        """Ses hızını değiştir"""
-        self.audio = librosa.effects.time_stretch(self.audio, rate=speed_factor)
+    def pitch_shift(self, steps):
+        """Perde kaydırma"""
+        self.audio = librosa.effects.pitch_shift(self.audio, sr=self.sr, n_steps=steps)
         
-    def add_reverb(self, reverb_strength=0.5):
-        """Reverb efekti ekle"""
-        reverb = np.zeros_like(self.audio)
-        delay_samples = int(self.sr * 0.05)  # 50ms delay
-        for i in range(5):  # 5 yankı
-            delay = delay_samples * (i + 1)
-            if delay < len(self.audio):
-                reverb[delay:] += self.audio[:-delay] * (reverb_strength ** (i + 1))
-        self.audio = self.audio + reverb
+    def add_delay(self, delay_time=0.3, decay=0.5):
+        """Delay efekti ekle"""
+        delay_samples = int(self.sr * delay_time)
+        delay = np.zeros_like(self.audio)
+        delay[delay_samples:] = self.audio[:-delay_samples] * decay
+        self.audio = self.audio + delay
         
-    def analyze_audio(self):
-        """Ses analizi yap ve sonuçları döndür"""
-        # Temel frekans analizi
-        f0, voiced_flag, voiced_probs = librosa.pyin(self.audio, fmin=librosa.note_to_hz('C2'), 
-                                                    fmax=librosa.note_to_hz('C7'))
+    def add_filter(self, filter_type='lowpass', cutoff_freq=1000):
+        """Filtre uygula"""
+        if filter_type == 'lowpass':
+            self.audio = librosa.effects.preemphasis(self.audio, coef=cutoff_freq/self.sr)
+        elif filter_type == 'highpass':
+            self.audio = librosa.effects.preemphasis(self.audio, coef=-cutoff_freq/self.sr)
+            
+    def add_flanger(self, rate=0.5, depth=0.002):
+        """Flanger efekti"""
+        t = np.arange(len(self.audio)) / self.sr
+        mod = np.sin(2 * np.pi * rate * t)
+        delay_samples = int(depth * self.sr)
+        flanger = np.zeros_like(self.audio)
+        for i in range(len(self.audio)):
+            delay = int(delay_samples * (1 + mod[i]))
+            if i >= delay:
+                flanger[i] = self.audio[i - delay]
+        self.audio = 0.7 * self.audio + 0.3 * flanger
         
-        # Ses yüksekliği analizi
-        rms = librosa.feature.rms(y=self.audio)[0]
-        
-        # Spektral merkezoid
-        spectral_centroids = librosa.feature.spectral_centroid(y=self.audio, sr=self.sr)[0]
-        
-        return {
-            'ortalama_frekans': np.mean(f0[voiced_flag]),
-            'max_ses_seviyesi': np.max(rms),
-            'ortalama_ses_seviyesi': np.mean(rms),
-            'spektral_merkez': np.mean(spectral_centroids)
-        }
+    def create_loop(self, start_time, end_time, repeats=4):
+        """Belirli bir bölümü döngüye al"""
+        start_sample = int(start_time * self.sr)
+        end_sample = int(end_time * self.sr)
+        loop_section = self.audio[start_sample:end_sample]
+        loop = np.tile(loop_section, repeats)
+        return loop
     
-    def visualize_waveform(self, output_file='waveform.png'):
-        """Ses dalgasını görselleştir"""
-        plt.figure(figsize=(12, 4))
+    def visualize_remix(self, output_file='remix_analysis.png'):
+        """Remix görselleştirmesi"""
+        plt.figure(figsize=(15, 8))
+        
+        # Dalga formu
+        plt.subplot(2, 1, 1)
         plt.plot(np.linspace(0, len(self.audio)/self.sr, len(self.audio)), self.audio)
-        plt.title('Ses Dalgası')
+        plt.title('Remix Dalga Formu')
         plt.xlabel('Zaman (saniye)')
         plt.ylabel('Genlik')
-        plt.savefig(output_file)
-        plt.close()
         
-    def visualize_spectrogram(self, output_file='spectrogram.png'):
-        """Spektrogramı görselleştir"""
+        # Spektrogram
+        plt.subplot(2, 1, 2)
         D = librosa.amplitude_to_db(np.abs(librosa.stft(self.audio)), ref=np.max)
-        plt.figure(figsize=(12, 4))
         librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='hz')
         plt.colorbar(format='%+2.0f dB')
-        plt.title('Spektrogram')
+        plt.title('Remix Spektrogramı')
+        
+        plt.tight_layout()
         plt.savefig(output_file)
         plt.close()
     
-    def save_audio(self):
-        """Düzeltilmiş sesi kaydet"""
-        if self.corrected_audio is not None:
-            audio_to_save = self.corrected_audio
-        else:
-            audio_to_save = self.audio
-        sf.write(self.output_file, audio_to_save, self.sr)
+    def save_remix(self):
+        """Remixlenmiş sesi kaydet"""
+        sf.write(self.output_file, self.audio, self.sr)
         
-    def process(self, add_effects=False, speed_factor=1.0, analyze=True, visualize=True):
-        """Tüm işlem adımlarını çalıştır"""
+    def process_remix(self, tempo_change=1.0, pitch_steps=0, add_effects=True):
+        """Remix işlem pipeline'ı"""
         print("Ses dosyası yükleniyor...")
         self.load_audio()
         
+        print("Tempo ve ritim analizi yapılıyor...")
+        original_tempo, beats = self.apply_beat_detection()
+        
+        if tempo_change != 1.0:
+            print(f"Tempo değiştiriliyor ({tempo_change}x)...")
+            self.time_stretch(tempo_change)
+            
+        if pitch_steps != 0:
+            print(f"Perde kaydırma uygulanıyor ({pitch_steps} adım)...")
+            self.pitch_shift(pitch_steps)
+            
         if add_effects:
             print("Efektler ekleniyor...")
-            self.add_echo()
-            self.add_reverb()
-            self.change_speed(speed_factor)
+            self.add_delay(0.3, 0.4)
+            self.add_flanger(0.7, 0.003)
+            self.add_filter('lowpass', 2000)
         
-        print("Pitch düzeltme işlemi yapılıyor...")
-        self.pitch_correction()
+        print("Remix görselleştirmesi oluşturuluyor...")
+        self.visualize_remix()
         
-        if analyze:
-            print("\nSes Analizi Yapılıyor...")
-            analiz = self.analyze_audio()
-            print(f"Ortalama Frekans: {analiz['ortalama_frekans']:.2f} Hz")
-            print(f"Maksimum Ses Seviyesi: {analiz['max_ses_seviyesi']:.2f}")
-            print(f"Ortalama Ses Seviyesi: {analiz['ortalama_ses_seviyesi']:.2f}")
-            print(f"Spektral Merkez: {analiz['spektral_merkez']:.2f} Hz")
-        
-        if visualize:
-            print("\nGörselleştirmeler oluşturuluyor...")
-            self.visualize_waveform()
-            self.visualize_spectrogram()
-        
-        print("\nDüzeltilmiş ses kaydediliyor...")
-        self.save_audio()
-        print(f"İşlem tamamlandı! Sonuç: {self.output_file}")
+        print("Remix kaydediliyor...")
+        self.save_remix()
+        print(f"Remix tamamlandı! Çıktı: {self.output_file}")
 
 def main():
     print("""
     ╔═══════════════════════════════════════╗
-    ║             AutotuneAI                ║
-    ║   Yapay Zeka Destekli Ses İşleme     ║
+    ║            Premiermixx                ║
+    ║     Yapay Zeka Destekli Remix        ║
     ╚═══════════════════════════════════════╝
     """)
     
     input_file = "input.wav"
-    output_file = "output_processed.wav"
+    output_file = "output_remix.wav"
     
     try:
-        processor = AutotuneAI(input_file, output_file)
-        processor.process(add_effects=True, speed_factor=1.0, analyze=True, visualize=True)
+        remixer = Premiermixx(input_file, output_file)
+        remixer.process_remix(
+            tempo_change=1.2,      # 20% daha hızlı
+            pitch_steps=2,         # 2 adım yukarı
+            add_effects=True       # Efektleri ekle
+        )
         
     except FileNotFoundError:
         print("Lütfen 'input.wav' adında bir ses dosyası ekleyin.")
@@ -174,4 +153,4 @@ def main():
         print(f"Bir hata oluştu: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    main()
