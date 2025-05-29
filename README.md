@@ -6,13 +6,15 @@ Premiermixx, yapay zeka destekli açık kaynaklı bir müzik remix uygulamasıd�
 
 - 🎚️ Tempo değiştirme ve beat senkronizasyonu
 - 🎛️ Pitch shifting (perde kaydırma)
+- ✂️ Beat slicing ve yeniden düzenleme
 - 🔊 Profesyonel efektler:
-  - Delay
-  - Flanger
-  - Filtreler
-- 🔄 Loop oluşturma
-- 📊 Beat analizi
-- 📈 Remix görselleştirme
+  - Gelişmiş Delay (feedback kontrolü)
+  - Gelişmiş Flanger
+  - Parametrik Filtreler
+  - Sidechain Kompresyon
+- 🔄 Crossfade destekli loop oluşturma
+- 📊 Beat analizi ve görselleştirme
+- 📈 Detaylı remix analizi
 
 ## 🚀 Kurulum
 
@@ -42,14 +44,19 @@ remixer = Premiermixx("input.wav", "output_remix.wav")
 remixer.process_remix(
     tempo_change=1.2,      # Tempo çarpanı (1.0 = normal)
     pitch_steps=2,         # Perde kaydırma adımı
-    add_effects=True       # Efektleri aktif/pasif yapar
+    add_effects=True,      # Efektleri aktif/pasif yapar
+    beat_slice=True,       # Beat slicing özelliğini aktif/pasif yapar
+    add_sidechain=True     # Sidechain kompresyonu aktif/pasif yapar
 )
 ```
 
 ## 📊 Çıktılar
 
 - `output_remix.wav`: Remixlenmiş ses dosyası
-- `remix_analysis.png`: Remix analiz grafiği (dalga formu ve spektrogram)
+- `remix_analysis.png`: Gelişmiş remix analiz grafiği:
+  - Dalga formu
+  - Spektrogram
+  - Beat tracking görselleştirmesi
 
 ## 🤝 Katkıda Bulunma
 
