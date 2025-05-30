@@ -15,6 +15,7 @@ Premiermixx, yapay zeka destekli açık kaynaklı bir müzik remix uygulamasıd�
 - 🔄 Crossfade destekli loop oluşturma
 - 📊 Beat analizi ve görselleştirme
 - 📈 Detaylı remix analizi
+- 🖥️ Kullanıcı dostu grafik arayüz
 
 ## 🚀 Kurulum
 
@@ -31,11 +32,23 @@ pip install -r requirements.txt
 
 ## 💻 Kullanım
 
-1. Remixlemek istediğiniz ses dosyasını `input.wav` olarak kaydedin
-2. Programı çalıştırın:
+Grafik arayüzü başlatmak için:
+```bash
+python gui.py
+```
+
+veya komut satırı arayüzü için:
 ```bash
 python main.py
 ```
+
+### Grafik Arayüz Özellikleri
+
+- Sürükle-bırak dosya desteği
+- Gerçek zamanlı parametre kontrolü
+- Görsel analiz gösterimi
+- İlerleme takibi
+- Kolay efekt yönetimi
 
 ### Parametreler
 
@@ -79,3 +92,4 @@ Bu proje aşağıdaki açık kaynak kütüphaneleri kullanmaktadır:
 - pyworld
 - soundfile
 - matplotlib
+- PyQt6

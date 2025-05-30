@@ -9,3 +9,4 @@ pyloudnorm>=0.1.0
 audioread>=3.0.0
 resampy>=0.4.2
 numba>=0.57.1
+PyQt6>=6.4.0
