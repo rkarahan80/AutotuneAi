@@ -78,32 +78,69 @@ class Premiermixx:
         
         self.audio = (1 - feedback) * self.audio + feedback * flanger
         
-    def create_loop(self, start_time, end_time, repeats=4, crossfade=0.1):
-        """Gelişmiş loop oluşturma"""
-        start_sample = int(start_time * self.sr)
-        end_sample = int(end_time * self.sr)
-        crossfade_samples = int(crossfade * self.sr)
-        
-        loop_section = self.audio[start_sample:end_sample]
-        loop_length = len(loop_section)
-        
-        # Crossfade için fade in/out eğrileri
-        fade_in = np.linspace(0, 1, crossfade_samples)
-        fade_out = np.linspace(1, 0, crossfade_samples)
-        
-        # Loop oluşturma
-        final_loop = np.zeros(loop_length * repeats)
-        for i in range(repeats):
-            start_idx = i * loop_length
-            end_idx = start_idx + loop_length
-            final_loop[start_idx:end_idx] = loop_section
+def create_loop(self, start_time, end_time, repeats=4, crossfade=0.1):
+    """Gelişmiş loop oluşturma"""
+    start_sample = int(start_time * self.sr)
+    end_sample = int(end_time * self.sr)
+
+    # Ensure start_sample and end_sample are within audio bounds
+    if start_sample < 0: start_sample = 0
+    if end_sample > len(self.audio): end_sample = len(self.audio)
+    if start_sample >= end_sample: # If region is invalid or empty
+        return np.array([])
+
+    loop_section_orig = self.audio[start_sample:end_sample]
+    loop_length = len(loop_section_orig)
+
+    if loop_length == 0:
+        return np.array([])
+
+    crossfade_samples = int(crossfade * self.sr)
+    if crossfade_samples < 0: crossfade_samples = 0
+
+    if crossfade_samples > loop_length // 2:
+        crossfade_samples = loop_length // 2
+
+    if repeats <= 0:
+        return np.array([])
+    if repeats == 1:
+        return loop_section_orig.copy()
+
+    final_loop_len = loop_length * repeats - crossfade_samples * (repeats - 1)
+    if final_loop_len <= 0:
+         simple_concat = [loop_section_orig.copy() for _ in range(repeats)]
+         return np.concatenate(simple_concat) if repeats > 0 else np.array([])
+
+    final_loop = np.zeros(final_loop_len)
+
+    fade_in = np.linspace(0, 1, crossfade_samples) if crossfade_samples > 0 else np.array([])
+    fade_out = np.linspace(1, 0, crossfade_samples) if crossfade_samples > 0 else np.array([])
+
+    current_pos_in_final = 0
+    for i in range(repeats):
+        segment_to_add = loop_section_orig.copy()
+
+        if i == 0:
+            final_loop[current_pos_in_final : current_pos_in_final + loop_length] = segment_to_add
+            current_pos_in_final += loop_length
+        else:
+            overlap_start_idx_in_final = current_pos_in_final - crossfade_samples
             
-            # Crossfade uygulama
-            if i > 0:
-                final_loop[start_idx:start_idx+crossfade_samples] *= fade_in
-                final_loop[start_idx-crossfade_samples:start_idx] *= fade_out
-                
-        return final_loop
+            if crossfade_samples > 0:
+                final_loop[overlap_start_idx_in_final : current_pos_in_final] *= fade_out
+                segment_to_add[:crossfade_samples] *= fade_in
+                final_loop[overlap_start_idx_in_final : current_pos_in_final] += segment_to_add[:crossfade_samples]
+
+            start_of_non_overlap_in_segment = crossfade_samples
+            length_of_non_overlap_in_segment = loop_length - crossfade_samples
+            end_pos_for_this_segment_non_overlap = current_pos_in_final + length_of_non_overlap_in_segment
+
+            final_loop[current_pos_in_final : end_pos_for_this_segment_non_overlap] = \
+                segment_to_add[start_of_non_overlap_in_segment:]
+
+            current_pos_in_final = end_pos_for_this_segment_non_overlap
+
+    return final_loop
     
     def beat_slice(self, slice_length=4):
         """Beat bazlı kesme ve yeniden düzenleme"""
@@ -141,7 +178,8 @@ class Premiermixx:
         for beat in beat_samples:
             if beat + release_samples < len(envelope):
                 envelope[beat:beat+attack_samples] = np.linspace(1, 1/ratio, attack_samples)
-                envelope[beat+attack_samples:beat+release_samples] = np.linspace(1/ratio, 1, release_samples-attack_samples)
+                if release_samples > attack_samples: # Added condition
+                    envelope[beat+attack_samples:beat+release_samples] = np.linspace(1/ratio, 1, release_samples-attack_samples)
                 
         self.audio *= envelope
     

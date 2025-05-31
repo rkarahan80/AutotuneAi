@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                             QComboBox, QTabWidget, QGroupBox, QDial, QFrame)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QFont, QColor, QPalette, QLinearGradient
+from PyQt6.QtGui import QPainter, QPen, QLinearGradient, QColor
 import os
 from main import Premiermixx
 import matplotlib.pyplot as plt
@@ -112,6 +113,7 @@ class RemixWorker(QThread):
         try:
             remixer = Premiermixx(self.input_file, self.output_file)
             
+            remixer.load_audio() # Added line
             # Emit waveform data for visualization
             self.waveform_update.emit(remixer.audio)
             
