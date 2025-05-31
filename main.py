@@ -56,12 +56,125 @@ class Premiermixx:
                 delay += echo
                 
         self.audio = self.audio + delay
+
+    def add_reverb(self, decay_time=0.5, damping=0.5, wet_dry_mix=0.3):
+        """Basit algoritmik reverb efekti (Schroeder Reverberator benzeri)"""
+        if wet_dry_mix == 0:
+            return
+
+        num_samples = len(self.audio)
+        dry_signal = self.audio.copy()
+        # wet_signal = np.zeros(num_samples) # Kullanılmıyor gibi, comb_outputs'tan başlıyoruz
+
+        # Schroeder Reverb için genel parametreler
+        comb_delay_times_sec = [0.0297, 0.0371, 0.0411, 0.0437, 0.022, 0.033] # Biraz daha çeşitlilik
+        allpass_delay_times_sec = [0.005, 0.0017, 0.007, 0.0023] # Daha fazla all-pass
+        allpass_feedback = 0.5
+
+        from scipy.signal import lfilter # Başa alalım
+
+        # Paralel Comb Filtreler
+        comb_outputs_sum = np.zeros(num_samples)
+        for delay_sec in comb_delay_times_sec:
+            delay_samples = int(delay_sec * self.sr)
+            if delay_samples <= 0 or delay_samples >= num_samples: continue
+
+            feedback_gain = 0.0 # Default
+            if decay_time > 0:
+                 # RT60 formülü: g = 0.001^(D/RT60)
+                 # Veya daha basit bir üssel azalma:
+                 feedback_gain = np.exp(-2.2 * delay_sec / decay_time)
+
+            feedback_gain *= (1 - (damping * (delay_sec / 0.05))) # Damping frekansa bağlı olsun (kısa delay'ler daha az sönümlenir)
+            feedback_gain = np.clip(feedback_gain, 0, 0.98) # Gain'in çok artmasını engelle
+
+            b_comb = [1.0]
+            a_comb = np.zeros(delay_samples + 1)
+            a_comb[0] = 1.0
+            a_comb[delay_samples] = -feedback_gain
+
+            comb_output_single = lfilter(b_comb, a_comb, self.audio)
+            comb_outputs_sum += comb_output_single
         
-    def add_filter(self, filter_type='lowpass', cutoff_freq=1000, order=4):
-        """Gelişmiş filtre sistemi"""
+        # Comb filtre çıkışlarını normalize etmiyoruz, ortalamasını alabiliriz veya doğrudan toplarız.
+        # Genellikle doğrudan toplanır ve sonra genel seviye ayarlanır.
+        # wet_signal = comb_outputs_sum / len(comb_delay_times_sec) # Ortalama almak yerine doğrudan toplama daha yaygın
+        wet_signal = comb_outputs_sum / np.sqrt(len(comb_delay_times_sec)) # Enerjiyi korumak için RMS benzeri normalizasyon
+
+
+        # Seri All-Pass Filtreler
+        allpass_processed_signal = wet_signal # Comb çıkışını al
+        for delay_sec in allpass_delay_times_sec:
+            delay_samples = int(delay_sec * self.sr)
+            if delay_samples <= 0 or delay_samples >= num_samples: continue
+
+            g_ap = allpass_feedback # All-pass gain'i genellikle sabit tutulur
+                                    # damping burada da etkili olabilir ama şimdilik sabit.
+
+            b_ap_schroeder = np.zeros(delay_samples + 1)
+            b_ap_schroeder[0] = -g_ap
+            b_ap_schroeder[delay_samples] = 1.0
+
+            a_ap_schroeder = np.zeros(delay_samples + 1)
+            a_ap_schroeder[0] = 1.0
+            a_ap_schroeder[delay_samples] = -g_ap # lfilter'da feedback terimi negatif
+
+            allpass_processed_signal = lfilter(b_ap_schroeder, a_ap_schroeder, allpass_processed_signal)
+
+        wet_signal = allpass_processed_signal
+
+        reverbed_audio = (1 - wet_dry_mix) * dry_signal + wet_dry_mix * wet_signal
+
+        # Clipping'i önlemek için normalizasyon
+        max_abs_val = np.max(np.abs(reverbed_audio))
+        if max_abs_val > 0.99: # 0.99 sınırı, biraz headroom bırakmak için
+            reverbed_audio = reverbed_audio / max_abs_val * 0.99
+
+        self.audio = reverbed_audio
+
+    def add_filter(self, filter_type='lowpass', cutoff_freq=1000, order=4, q_factor=1.0):
+        """Gelişmiş filtre sistemi (lowpass, highpass, bandpass, bandstop destekler)"""
         nyquist = self.sr * 0.5
-        normalized_cutoff = cutoff_freq / nyquist
-        b, a = butter(order, normalized_cutoff, btype=filter_type)
+
+        if filter_type in ['lowpass', 'highpass']:
+            if not isinstance(cutoff_freq, (int, float)) or cutoff_freq <= 0 or cutoff_freq >= nyquist:
+                print(f"Uyarı: {filter_type} için cutoff_freq ({cutoff_freq} Hz) (0, {nyquist} Hz) aralığında geçerli bir sayı olmalı. Filtre uygulanmayacak.")
+                return
+            normalized_cutoff = cutoff_freq / nyquist
+            # Kesim frekansının çok küçük veya 1'e çok yakın olmamasını sağla (nümerik stabilite için)
+            normalized_cutoff = np.clip(normalized_cutoff, 1e-6, 1.0 - 1e-6)
+            b, a = butter(order, normalized_cutoff, btype=filter_type, analog=False)
+        elif filter_type in ['bandpass', 'bandstop']:
+            if not isinstance(cutoff_freq, (int, float)) or cutoff_freq <= 0 or cutoff_freq >= nyquist:
+                 print(f"Uyarı: {filter_type} için merkez frekans ({cutoff_freq} Hz) (0, {nyquist} Hz) aralığında geçerli bir sayı olmalı. Filtre uygulanmayacak.")
+                 return
+            if not isinstance(q_factor, (int,float)) or q_factor <= 0:
+                print(f"Uyarı: {filter_type} için Q faktörü ({q_factor}) pozitif bir sayı olmalı. Filtre uygulanmayacak.")
+                return
+
+            center_freq_norm = cutoff_freq / nyquist
+            bandwidth_norm = center_freq_norm / q_factor
+
+            low_cutoff_norm = center_freq_norm - (bandwidth_norm / 2)
+            high_cutoff_norm = center_freq_norm + (bandwidth_norm / 2)
+
+            if low_cutoff_norm >= high_cutoff_norm: # Bant genişliği çok büyükse veya merkez frekans kenara çok yakınsa olabilir
+                 print(f"Uyarı: {filter_type} için hesaplanan kesim frekansları geçersiz (low_norm: {low_cutoff_norm:.3f}, high_norm: {high_cutoff_norm:.3f}). Q veya merkez frekansını ayarlayın. Filtre uygulanmayacak.")
+                 return
+
+            # Normalize edilmiş frekansları (0, 1) aralığına klipleyelim (açık aralık gibi düşünülmeli)
+            low_cutoff_norm = np.clip(low_cutoff_norm, 1e-6, 1.0 - 1e-6)
+            high_cutoff_norm = np.clip(high_cutoff_norm, 1e-6, 1.0 - 1e-6)
+
+            if low_cutoff_norm >= high_cutoff_norm: # Kliplemeden sonra tekrar kontrol
+                 print(f"Uyarı: {filter_type} için Kliplenmiş kesim frekansları geçersiz (low_norm: {low_cutoff_norm:.3f}, high_norm: {high_cutoff_norm:.3f}). Filtre uygulanmayacak.")
+                 return
+
+            b, a = butter(order, [low_cutoff_norm, high_cutoff_norm], btype=filter_type, analog=False)
+        else:
+            print(f"Geçersiz filtre tipi: {filter_type}. Desteklenen tipler: 'lowpass', 'highpass', 'bandpass', 'bandstop'. Filtre uygulanmayacak.")
+            return
+
         self.audio = filtfilt(b, a, self.audio)
             
     def add_flanger(self, rate=0.5, depth=0.002, feedback=0.5):
@@ -183,7 +296,10 @@ class Premiermixx:
         sf.write(self.output_file, self.audio, self.sr)
         
     def process_remix(self, tempo_change=1.0, pitch_steps=0, add_effects=True, 
-                     beat_slice=False, add_sidechain=False):
+                     beat_slice=False, add_sidechain=False,
+                     reverb_decay_time=0.0, reverb_damping=0.5, reverb_mix=0.0, # Reverb parametreleri
+                     eq_filter_type=None, eq_center_freq=1000, eq_q_factor=1.0, eq_order=4 # EQ Filtre parametreleri
+                     ):
         """Gelişmiş remix işlem pipeline'ı"""
         print("Ses dosyası yükleniyor...")
         self.load_audio()
@@ -205,9 +321,26 @@ class Premiermixx:
             
         if add_effects:
             print("Efektler ekleniyor...")
-            self.add_delay(0.3, 0.4, 0.3)
+            self.add_delay(0.3, 0.4, 0.3) # Bu efektler `add_effects` bayrağına bağlı kalabilir
             self.add_flanger(0.7, 0.003, 0.4)
-            self.add_filter('lowpass', 2000, order=4)
+            # self.add_filter('lowpass', 2000, order=4) # Eski genel filtreyi kaldırıyoruz, EQ ile yönetilecek
+
+        # Yeni EQ Filtre Uygulaması (add_effects'ten bağımsız olabilir veya ona bağlanabilir)
+        # Şimdilik add_effects'ten bağımsız olarak çalışsın.
+        if eq_filter_type:
+            print(f"{eq_filter_type} EQ filtresi uygulanıyor (Freq: {eq_center_freq} Hz, Q: {eq_q_factor}, Order: {eq_order})...")
+            self.add_filter(filter_type=eq_filter_type,
+                            cutoff_freq=eq_center_freq,
+                            order=eq_order,
+                            q_factor=eq_q_factor)
+
+        # Reverb Uygulaması (add_effects'ten bağımsız olabilir veya ona bağlanabilir)
+        # Şimdilik add_effects'ten bağımsız olarak çalışsın.
+        if reverb_mix > 0: # reverb_mix > 0 ise reverb uygula
+            print(f"Reverb ekleniyor (Decay: {reverb_decay_time}s, Damping: {reverb_damping}, Mix: {reverb_mix})...")
+            self.add_reverb(decay_time=reverb_decay_time,
+                            damping=reverb_damping,
+                            wet_dry_mix=reverb_mix)
             
         if add_sidechain:
             print("Sidechain kompresyon uygulanıyor...")
@@ -234,13 +367,38 @@ def main():
     try:
         remixer = Premiermixx(input_file, output_file)
         remixer.process_remix(
-            tempo_change=1.2,      # 20% daha hızlı
-            pitch_steps=2,         # 2 adım yukarı
-            add_effects=True,      # Efektleri ekle
-            beat_slice=True,       # Beat slicing aktif
-            add_sidechain=True     # Sidechain kompresyon aktif
+            tempo_change=1.0,      # Tempo değişikliği yok
+            pitch_steps=0,         # Perde değişikliği yok
+            add_effects=True,      # Temel efektler (delay, flanger) aktif kalsın mı? Evet.
+            beat_slice=False,      # Beat slicing kapalı
+            add_sidechain=False,   # Sidechain kapalı
+
+            # Yeni Reverb Ayarları
+            reverb_decay_time=0.7, # Saniye cinsinden reverb süresi (0 ise reverb yok gibi)
+            reverb_damping=0.4,    # Yüksek frekans sönümlemesi (0-1 aralığı, 0: sönümleme yok)
+            reverb_mix=0.2,        # Wet/Dry karışımı (0: sadece dry, 1: sadece wet)
+
+            # Yeni EQ Filtre Ayarları
+            eq_filter_type='bandpass', # Seçenekler: 'lowpass', 'highpass', 'bandpass', 'bandstop', None
+            eq_center_freq=1200,   # Hz cinsinden merkez/kesim frekansı
+            eq_q_factor=1.0,       # Q faktörü (bandpass/bandstop için anlamlı, >0 olmalı)
+            eq_order=3             # Filtre derecesi (örn: 2, 3, 4...)
         )
         
+        # Örnek 2: Sadece highpass filtre ve biraz daha uzun reverb
+        # output_file_hp_reverb = "output_remix_hp_reverb.wav"
+        # remixer_hp_reverb = Premiermixx(input_file, output_file_hp_reverb)
+        # print(f"\nİkinci remix oluşturuluyor: {output_file_hp_reverb}")
+        # remixer_hp_reverb.process_remix(
+        #     add_effects=False, # Temel delay/flanger kapalı
+        #     reverb_decay_time=1.5,
+        #     reverb_damping=0.6,
+        #     reverb_mix=0.3,
+        #     eq_filter_type='highpass',
+        #     eq_center_freq=300, # Düşük frekansları kes
+        #     eq_order=4
+        # )
+
     except FileNotFoundError:
         print("Lütfen 'input.wav' adında bir ses dosyası ekleyin.")
     except Exception as e:

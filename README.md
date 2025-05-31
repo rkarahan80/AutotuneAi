@@ -10,7 +10,8 @@ Premiermixx, yapay zeka destekli açık kaynaklı bir müzik remix uygulamasıd�
 - 🔊 Profesyonel efektler:
   - Gelişmiş Delay (feedback kontrolü)
   - Gelişmiş Flanger
-  - Parametrik Filtreler
+  - 🌫️ Reverb Efekti (Decay, Damping, Mix kontrollü)
+  - 🎚️ Parametrik EQ (Lowpass, Highpass, Bandpass, Bandstop filtreleri, Frekans, Q ve Order kontrollü)
   - Sidechain Kompresyon
 - 🔄 Crossfade destekli loop oluşturma
 - 📊 Beat analizi ve görselleştirme
@@ -55,11 +56,22 @@ python main.py
 ```python
 remixer = Premiermixx("input.wav", "output_remix.wav")
 remixer.process_remix(
-    tempo_change=1.2,      # Tempo çarpanı (1.0 = normal)
-    pitch_steps=2,         # Perde kaydırma adımı
-    add_effects=True,      # Efektleri aktif/pasif yapar
-    beat_slice=True,       # Beat slicing özelliğini aktif/pasif yapar
-    add_sidechain=True     # Sidechain kompresyonu aktif/pasif yapar
+    tempo_change=1.0,      # Tempo çarpanı (1.0 = normal)
+    pitch_steps=0,         # Perde kaydırma adımı (yarım ton cinsinden)
+    add_effects=True,      # Ana efektleri (Delay, Flanger) aktif/pasif yapar
+    beat_slice=False,      # Beat slicing özelliğini aktif/pasif yapar
+    add_sidechain=False,   # Sidechain kompresyonu aktif/pasif yapar
+
+    # Reverb Efekti Parametreleri
+    reverb_decay_time=0.5, # Reverb süresi (saniye, 0: kapalı)
+    reverb_damping=0.5,    # Reverb sönümlemesi (0-1, yüksek frekansları etkiler)
+    reverb_mix=0.25,       # Reverb ıslak/kuru karışımı (0-1, 0: kapalı)
+
+    # Parametrik EQ Filtre Parametreleri
+    eq_filter_type='bandpass', # Filtre tipi ('lowpass', 'highpass', 'bandpass', 'bandstop', veya None)
+    eq_center_freq=1000,   # Merkez/Kesim frekansı (Hz)
+    eq_q_factor=1.0,       # Q faktörü (bandpass/bandstop için geçerli)
+    eq_order=4             # Filtre derecesi/eğimi
 )
 ```
 
