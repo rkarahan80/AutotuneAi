@@ -301,19 +301,109 @@ class PremiermixxGUI(QMainWindow):
         basic_controls.setLayout(basic_layout)
         controls_layout.addWidget(basic_controls)
         
-        # Right panel - Effect racks
-        effects_panel = QVBoxLayout()
+        # Right panel - Effect racks and new controls
+        effects_and_new_controls_panel = QVBoxLayout() # Renamed for clarity
         
-        # Effect racks
-        delay_rack = EffectRack("Delay")
-        flanger_rack = EffectRack("Flanger")
-        filter_rack = EffectRack("Filter")
+        # Effect racks (Original)
+        self.delay_rack = EffectRack("Delay") # Store as instance var if needed later
+        self.flanger_rack = EffectRack("Flanger")
+        # filter_rack = EffectRack("Filter") # This will be replaced by Parametric EQ
         
-        effects_panel.addWidget(delay_rack)
-        effects_panel.addWidget(flanger_rack)
-        effects_panel.addWidget(filter_rack)
+        effects_and_new_controls_panel.addWidget(self.delay_rack)
+        effects_and_new_controls_panel.addWidget(self.flanger_rack)
+        # effects_and_new_controls_panel.addWidget(filter_rack) # Removed
+
+        # Reverb Controls GroupBox
+        reverb_group = QGroupBox("Reverb")
+        reverb_layout = QVBoxLayout()
+
+        # Reverb Decay Time
+        decay_layout = QHBoxLayout()
+        decay_label = QLabel("Decay Time (s):")
+        self.reverb_decay_spin = QDoubleSpinBox()
+        self.reverb_decay_spin.setRange(0.0, 5.0)
+        self.reverb_decay_spin.setValue(0.0) # Default off
+        self.reverb_decay_spin.setSingleStep(0.1)
+        decay_layout.addWidget(decay_label)
+        decay_layout.addWidget(self.reverb_decay_spin)
+        reverb_layout.addLayout(decay_layout)
+
+        # Reverb Damping
+        damping_layout = QHBoxLayout()
+        damping_label = QLabel("Damping (0-1):")
+        self.reverb_damping_spin = QDoubleSpinBox()
+        self.reverb_damping_spin.setRange(0.0, 1.0)
+        self.reverb_damping_spin.setValue(0.5)
+        self.reverb_damping_spin.setSingleStep(0.1)
+        damping_layout.addWidget(damping_label)
+        damping_layout.addWidget(self.reverb_damping_spin)
+        reverb_layout.addLayout(damping_layout)
+
+        # Reverb Mix
+        mix_layout = QHBoxLayout()
+        mix_label = QLabel("Wet/Dry Mix (0-1):")
+        self.reverb_mix_spin = QDoubleSpinBox()
+        self.reverb_mix_spin.setRange(0.0, 1.0)
+        self.reverb_mix_spin.setValue(0.0) # Default off
+        self.reverb_mix_spin.setSingleStep(0.05)
+        mix_layout.addWidget(mix_label)
+        mix_layout.addWidget(self.reverb_mix_spin)
+        reverb_layout.addLayout(mix_layout)
+
+        reverb_group.setLayout(reverb_layout)
+        effects_and_new_controls_panel.addWidget(reverb_group)
+
+        # Parametric EQ Controls GroupBox
+        eq_group = QGroupBox("Parametric EQ")
+        eq_layout = QVBoxLayout()
+
+        # EQ Filter Type
+        type_layout = QHBoxLayout()
+        type_label = QLabel("Filter Type:")
+        self.eq_type_combo = QComboBox()
+        self.eq_type_combo.addItems(["Off", "Lowpass", "Highpass", "Bandpass", "Bandstop"])
+        self.eq_type_combo.setCurrentText("Off")
+        type_layout.addWidget(type_label)
+        type_layout.addWidget(self.eq_type_combo)
+        eq_layout.addLayout(type_layout)
+
+        # EQ Center Frequency
+        freq_layout = QHBoxLayout()
+        freq_label = QLabel("Center/Cutoff Freq (Hz):")
+        self.eq_freq_spin = QDoubleSpinBox()
+        self.eq_freq_spin.setRange(20.0, 20000.0)
+        self.eq_freq_spin.setValue(1000.0)
+        self.eq_freq_spin.setSingleStep(10.0) # Could be more dynamic
+        # self.eq_freq_spin.setDecimals(0) # For cleaner display of common Hz values
+        freq_layout.addWidget(freq_label)
+        freq_layout.addWidget(self.eq_freq_spin)
+        eq_layout.addLayout(freq_layout)
+
+        # EQ Q Factor
+        q_layout = QHBoxLayout()
+        q_label = QLabel("Q Factor:")
+        self.eq_q_spin = QDoubleSpinBox()
+        self.eq_q_spin.setRange(0.1, 10.0)
+        self.eq_q_spin.setValue(1.0)
+        self.eq_q_spin.setSingleStep(0.1)
+        q_layout.addWidget(q_label)
+        q_layout.addWidget(self.eq_q_spin)
+        eq_layout.addLayout(q_layout)
+
+        # EQ Order
+        order_layout = QHBoxLayout()
+        order_label = QLabel("Order:")
+        self.eq_order_spin = QSpinBox()
+        self.eq_order_spin.setRange(1, 8) # Butterworth typically uses even orders, but allow odd.
+        self.eq_order_spin.setValue(4)
+        order_layout.addWidget(order_label)
+        order_layout.addWidget(self.eq_order_spin)
+        eq_layout.addLayout(order_layout)
+
+        eq_group.setLayout(eq_layout)
+        effects_and_new_controls_panel.addWidget(eq_group)
         
-        controls_layout.addLayout(effects_panel)
+        controls_layout.addLayout(effects_and_new_controls_panel) # Add the QVBoxLayout to the main QHBoxLayout
         
         main_tab_layout.addLayout(controls_layout)
         
@@ -382,10 +472,24 @@ class PremiermixxGUI(QMainWindow):
         params = {
             'tempo_change': self.tempo_spin.value(),
             'pitch_steps': self.pitch_spin.value(),
-            'add_effects': self.effects_check.isChecked(),
+            'add_effects': self.effects_check.isChecked(), # Controls delay/flanger from main.py
             'beat_slice': self.beat_slice_check.isChecked(),
-            'add_sidechain': self.sidechain_check.isChecked()
+            'add_sidechain': self.sidechain_check.isChecked(),
+
+            # Reverb parameters
+            'reverb_decay_time': self.reverb_decay_spin.value(),
+            'reverb_damping': self.reverb_damping_spin.value(),
+            'reverb_mix': self.reverb_mix_spin.value(),
+
+            # EQ parameters
+            'eq_filter_type': self.eq_type_combo.currentText().lower() if self.eq_type_combo.currentText() != "Off" else None,
+            'eq_center_freq': self.eq_freq_spin.value(),
+            'eq_q_factor': self.eq_q_spin.value(),
+            'eq_order': self.eq_order_spin.value()
         }
+
+        # Debug print for params
+        print("Remix Parameters:", params)
 
         self.worker = RemixWorker(self.input_file, self.output_file, params)
         self.worker.finished.connect(self.onRemixFinished)
