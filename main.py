@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import os
 from scipy.signal import butter, filtfilt
+import tensorflow as tf
 
 class Premiermixx:
     def __init__(self, input_file, output_file):
@@ -228,6 +229,16 @@ def main():
     ╚═══════════════════════════════════════╝
     """)
     
+    try:
+        print(f"TensorFlow version: {tf.__version__}")
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            print(f"GPUs available: {gpus}")
+        else:
+            print("No GPUs available, TensorFlow will use CPU.")
+    except Exception as e:
+        print(f"Error initializing TensorFlow: {e}")
+
     input_file = "input.wav"
     output_file = "output_remix.wav"
     
