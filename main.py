@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import os
 from scipy.signal import butter, filtfilt
+import torch
+import torchcrepe
+from spleeter.separator import Separator
+from spleeter.audio.adapter import AudioAdapter # To load audio if needed by spleeter directly
 
 class Premiermixx:
     def __init__(self, input_file, output_file):
@@ -23,11 +27,192 @@ class Premiermixx:
         self.processed_audio = None
         self.beat_frames = None
         self.tempo = None
-        
+
     def load_audio(self):
         """Ses dosyasını yükle"""
-        self.audio, self.sr = librosa.load(self.input_file, sr=None)
+        # Ensure audio is float32 for torchcrepe and pyworld
+        audio_temp, self.sr = librosa.load(self.input_file, sr=None, dtype=np.float32)
+        # Ensure mono for CREPE
+        if audio_temp.ndim > 1:
+            audio_temp = librosa.to_mono(audio_temp)
+        self.audio = np.ascontiguousarray(audio_temp) # pyworld needs contiguous array
+
+    def apply_autotune(self, strength=1.0, model_capacity='tiny', fmin=50, fmax=550, confidence_threshold=0.4, custom_scale=None):
+        """Yapay zeka destekli autotune uygula"""
+        if self.audio is None:
+            print("Autotune için önce ses dosyası yüklenmeli.")
+            return
+
+        print("Autotune işlemi başlatılıyor...")
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"TorchCREPE {model_capacity} modeli {device} üzerinde çalışacak.")
+
+        # Hop length for CREPE analysis (e.g., 10ms)
+        hop_length = int(self.sr * 0.01) # 10ms hop size
+
+        # Ensure audio is a PyTorch tensor
+        audio_tensor = torch.tensor(self.audio[np.newaxis, :], dtype=torch.float32, device=device)
+
+        # Get pitch contour (F0) and periodicity using torchcrepe
+        # Note: torchcrepe.predict expects audio as a 1D numpy array or path, not a tensor for the predict function.
+        # We'll use the lower-level functions torchcrepe.preprocess, torchcrepe.infer, torchcrepe.postprocess
+
+        # Preprocess audio for CREPE
+        # Pad audio to facilitate windowing
+        padded_audio = torchcrepe.filter.pad(self.audio, hop_length)
+        frames = torchcrepe.preprocess.frames(padded_audio, hop_length)
+        frames = frames.to(device)
+
+        # Infer pitch probabilities
+        # Assuming a batch size, but here we process one file
+        probabilities = torchcrepe.infer(frames, model=model_capacity)
+
+        # Postprocess to get pitch and periodicity
+        # Using viterbi decoding by default in postprocess
+        pitch, periodicity = torchcrepe.postprocess.decode(probabilities, fmin, fmax, model=model_capacity, return_periodicity=True)
+
+        # Squeeze batch dimension if present (predict might add it)
+        pitch = pitch.squeeze(0).cpu().numpy()
+        periodicity = periodicity.squeeze(0).cpu().numpy()
+
+        # Filter pitch based on periodicity
+        periodicity = torchcrepe.filter.median(periodicity, 3) # Smooth periodicity
+        pitch = torchcrepe.threshold.At(confidence_threshold)(pitch, periodicity) # Apply confidence threshold
+        pitch = torchcrepe.filter.mean(pitch, 3) # Smooth pitch
+
+        # Convert F0 to MIDI notes
+        midi_notes = librosa.hz_to_midi(pitch)
+
+        # For notes where pitch is defined (not NaN from thresholding)
+        voiced_indices = ~np.isnan(midi_notes)
+
+        # Target MIDI notes (chromatic correction for now)
+        # Apply strength: 0 = no change, 1 = full correction
+        target_midi_notes = np.copy(midi_notes)
+        if custom_scale:
+            # Advanced: Snap to a custom scale (list of MIDI note numbers mod 12)
+            # For each voiced note, find the closest note in the custom scale
+            for i in np.where(voiced_indices)[0]:
+                current_note_mod = midi_notes[i] % 12
+                scale_note_distances = [min(abs(current_note_mod - s_note), 12 - abs(current_note_mod - s_note)) for s_note in custom_scale]
+                closest_scale_note_idx = np.argmin(scale_note_distances)
+                target_chroma = custom_scale[closest_scale_note_idx]
+
+                original_octave_midi = midi_notes[i]
+                original_chroma = original_octave_midi % 12
+
+                # Adjust target_chroma to be the one closest to original_chroma
+                # e.g. if original is 11.8 (B) and scale has 0 (C) and 10 (Bb)
+                # if original_chroma is 11.8, target_chroma could be 0 or 10.
+                # We want to choose the one that makes original_octave_midi closer to target_octave_midi
+
+                # Form two candidates for target MIDI: one in the same octave, one in adjacent if necessary
+                target_midi_candidate1 = np.floor(original_octave_midi / 12) * 12 + target_chroma
+                target_midi_candidate2 = np.ceil(original_octave_midi / 12) * 12 + target_chroma
+
+                # Choose the candidate closer to the original MIDI note
+                if abs(original_octave_midi - target_midi_candidate1) <= abs(original_octave_midi - target_midi_candidate2):
+                    rounded_midi = target_midi_candidate1
+                else:
+                    rounded_midi = target_midi_candidate2
+
+                # If the closest scale note is further than a semitone away in the other direction, adjust octave
+                if abs(original_chroma - target_chroma) > 6: # target is across the octave boundary
+                    if original_chroma > target_chroma: # e.g. original C, target B (prev octave)
+                        rounded_midi +=12
+                    else: # e.g. original B, target C (next octave)
+                        rounded_midi -=12
+
+                target_midi_notes[i] = original_octave_midi * (1.0 - strength) + rounded_midi * strength
+
+        else: # Chromatic correction
+            rounded_midi_notes = np.round(midi_notes[voiced_indices])
+            target_midi_notes[voiced_indices] = midi_notes[voiced_indices] * (1.0 - strength) + rounded_midi_notes * strength
+
+        # Convert target MIDI notes back to F0
+        corrected_f0 = librosa.midi_to_hz(target_midi_notes)
+        # Fill NaN values (unvoiced / low confidence) with 0 Hz for PyWorld, or original pitch if preferred
+        corrected_f0[np.isnan(corrected_f0)] = 0
+
+        # Ensure corrected_f0 is double for PyWorld
+        corrected_f0 = corrected_f0.astype(np.double)
+
+        # PyWorld analysis (spectral envelope and aperiodicity from original audio)
+        # Need to use the original audio for analysis to keep its timbre
+        # Ensure self.audio is double for pyworld
+        audio_double = self.audio.astype(np.double)
+        _f0, _time = pw.dio(audio_double, self.sr, frame_period=hop_length/self.sr*1000) # frame_period in ms
+        _sp = pw.cheaptrick(audio_double, _f0, _time, self.sr)
+        _ap = pw.d4c(audio_double, _f0, _time, self.sr)
+
+        # Align CREPE F0 length with PyWorld F0 length
+        # PyWorld's _f0 length is often different from CREPE's due to different framing/padding.
+        # We need to resample/interpolate corrected_f0 to match the length of _f0.
+        if len(corrected_f0) != len(_f0):
+            print(f"Aligning F0 lengths: CREPE F0 len {len(corrected_f0)}, PyWorld F0 len {len(_f0)}")
+            # Simple resampling using numpy.interp
+            # Create x-axis for corrected_f0 and _f0
+            x_corrected_f0 = np.linspace(0, 1, len(corrected_f0))
+            x_pyworld_f0 = np.linspace(0, 1, len(_f0))
+            corrected_f0_aligned = np.interp(x_pyworld_f0, x_corrected_f0, corrected_f0)
+        else:
+            corrected_f0_aligned = corrected_f0
+
+        # Synthesize audio with corrected F0 and original SP/AP
+        # Ensure f0 is C-contiguous and double
+        corrected_f0_aligned = np.ascontiguousarray(corrected_f0_aligned, dtype=np.double)
         
+        print("PyWorld syntesizing...")
+        self.audio = pw.synthesize(corrected_f0_aligned, _sp, _ap, self.sr, frame_period=hop_length/self.sr*1000)
+        self.audio = self.audio.astype(np.float32) # Back to float32
+        print("Autotune işlemi tamamlandı.")
+
+    def apply_source_separation(self, model_name='spleeter:2stems', output_stems_path='separated_stems'):
+        """Kaynak ayırma (source separation) uygula"""
+        if not self.input_file or not os.path.exists(self.input_file):
+            print("Kaynak ayırma için geçerli bir giriş dosyası bulunamadı.")
+            return None
+
+        print(f"Kaynak ayırma işlemi '{model_name}' modeli ile başlatılıyor...")
+        try:
+            separator = Separator(model_name)
+
+            # Define where Spleeter will save the stems.
+            # It creates a subdirectory named after the input file inside output_stems_path.
+            # e.g., output_stems_path/input_filename_without_ext/vocals.wav
+            if not os.path.exists(output_stems_path):
+                os.makedirs(output_stems_path, exist_ok=True)
+
+            print(f"Stems '{output_stems_path}' dizinine kaydedilecek.")
+            separator.separate_to_file(self.input_file, output_stems_path)
+
+            # Determine the names of the output files/stems
+            input_filename_without_ext = os.path.splitext(os.path.basename(self.input_file))[0]
+            stem_output_folder = os.path.join(output_stems_path, input_filename_without_ext)
+
+            generated_stems = {}
+            if model_name == 'spleeter:2stems':
+                possible_stems = ['vocals', 'accompaniment']
+            elif model_name == 'spleeter:4stems':
+                possible_stems = ['vocals', 'drums', 'bass', 'other']
+            elif model_name == 'spleeter:5stems':
+                possible_stems = ['vocals', 'drums', 'bass', 'piano', 'other']
+            else: # Fallback for custom models, though not explicitly supported yet
+                possible_stems = ['vocals', 'drums', 'bass', 'piano', 'other', 'accompaniment']
+
+            for stem_name in possible_stems:
+                stem_file_path = os.path.join(stem_output_folder, f"{stem_name}.wav")
+                if os.path.exists(stem_file_path):
+                    generated_stems[stem_name] = stem_file_path
+
+            print(f"Kaynak ayırma tamamlandı. Stems: {generated_stems}")
+            return generated_stems
+
+        except Exception as e:
+            print(f"Kaynak ayırma sırasında bir hata oluştu: {e}")
+            # Potentially log more details or raise specific exceptions
+            return None
+
     def apply_beat_detection(self):
         """Ritim tespiti ve senkronizasyonu"""
         self.tempo, self.beat_frames = librosa.beat.beat_track(y=self.audio, sr=self.sr)
@@ -183,10 +368,32 @@ class Premiermixx:
         sf.write(self.output_file, self.audio, self.sr)
         
     def process_remix(self, tempo_change=1.0, pitch_steps=0, add_effects=True, 
-                     beat_slice=False, add_sidechain=False):
+                     beat_slice=False, add_sidechain=False, apply_autotune=False,
+                     autotune_strength=0.8, autotune_model='tiny', autotune_confidence=0.4,
+                     apply_source_separation=False, spleeter_model='spleeter:2stems',
+                     stems_output_dir='separated_stems_output'):
         """Gelişmiş remix işlem pipeline'ı"""
-        print("Ses dosyası yükleniyor...")
-        self.load_audio()
+
+        # Source separation is done first if enabled, on the original input file
+        if apply_source_separation:
+            print("Kaynak ayırma (Spleeter) işlemi uygulanıyor...")
+            # Ensure a valid input file is set for Spleeter, even if self.audio is loaded from it
+            if not self.input_file or not os.path.exists(self.input_file):
+                 print("Uyarı: Kaynak ayırma için giriş dosyası bulunamadı, bu adım atlanıyor.")
+            else:
+                self.apply_source_separation(model_name=spleeter_model, output_stems_path=stems_output_dir)
+                # Note: This currently only saves stems. It doesn't change self.audio for further processing.
+                # The user would need to use the saved stems manually.
+                # If the goal was to process a specific stem (e.g. vocals), the workflow would need adjustment:
+                # 1. Separate. 2. User selects a stem. 3. Load that stem into self.audio. 4. Process.
+
+        print("Ses dosyası yükleniyor (ana işlem için)...")
+        self.load_audio() # This loads self.input_file into self.audio
+
+        if apply_autotune:
+            print("Autotune uygulanıyor...")
+            # For now, only chromatic autotune. Scale selection can be added later.
+            self.apply_autotune(strength=autotune_strength, model_capacity=autotune_model, confidence_threshold=autotune_confidence, custom_scale=None)
         
         print("Tempo ve ritim analizi yapılıyor...")
         self.apply_beat_detection()
@@ -238,7 +445,13 @@ def main():
             pitch_steps=2,         # 2 adım yukarı
             add_effects=True,      # Efektleri ekle
             beat_slice=True,       # Beat slicing aktif
-            add_sidechain=True     # Sidechain kompresyon aktif
+            add_sidechain=True,    # Sidechain kompresyon aktif
+            apply_autotune=True,   # Autotune aktif
+            autotune_strength=0.7, # Autotune gücü
+            autotune_model='tiny', # Autotune CREPE modeli
+            apply_source_separation=True, # Kaynak ayırmayı aktif et
+            spleeter_model='spleeter:2stems', # Kullanılacak Spleeter modeli
+            stems_output_dir='cli_separated_stems' # CLI test için çıktı klasörü
         )
         
     except FileNotFoundError:

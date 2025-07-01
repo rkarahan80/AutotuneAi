@@ -273,7 +273,9 @@ class PremiermixxGUI(QMainWindow):
         # Controls section
         controls_layout = QHBoxLayout()
         
-        # Left panel - Basic controls
+        # Left panel - Basic controls and Autotune
+        left_panel_layout = QVBoxLayout()
+
         basic_controls = QGroupBox("Basic Controls")
         basic_layout = QVBoxLayout()
         
@@ -297,9 +299,80 @@ class PremiermixxGUI(QMainWindow):
         pitch_layout.addWidget(pitch_label)
         pitch_layout.addWidget(self.pitch_spin)
         basic_layout.addLayout(pitch_layout)
-        
         basic_controls.setLayout(basic_layout)
-        controls_layout.addWidget(basic_controls)
+        left_panel_layout.addWidget(basic_controls)
+
+        # Autotune controls
+        autotune_controls = QGroupBox("AI Autotune")
+        autotune_layout = QVBoxLayout()
+
+        self.autotune_check = QCheckBox("Enable Autotune")
+        autotune_layout.addWidget(self.autotune_check)
+
+        # Autotune Strength
+        autotune_strength_layout = QHBoxLayout()
+        autotune_strength_label = QLabel("Strength:")
+        self.autotune_strength_spin = QDoubleSpinBox()
+        self.autotune_strength_spin.setRange(0.0, 1.0)
+        self.autotune_strength_spin.setValue(0.8)
+        self.autotune_strength_spin.setSingleStep(0.1)
+        autotune_strength_layout.addWidget(autotune_strength_label)
+        autotune_strength_layout.addWidget(self.autotune_strength_spin)
+        autotune_layout.addLayout(autotune_strength_layout)
+
+        # Autotune Model
+        autotune_model_layout = QHBoxLayout()
+        autotune_model_label = QLabel("Model:")
+        self.autotune_model_combo = QComboBox()
+        self.autotune_model_combo.addItems(["tiny", "full"])
+        autotune_model_layout.addWidget(autotune_model_label)
+        autotune_model_layout.addWidget(self.autotune_model_combo)
+        autotune_layout.addLayout(autotune_model_layout)
+
+        # Autotune Confidence Threshold
+        autotune_confidence_layout = QHBoxLayout()
+        autotune_confidence_label = QLabel("Confidence:")
+        self.autotune_confidence_spin = QDoubleSpinBox()
+        self.autotune_confidence_spin.setRange(0.01, 0.99) # Crepe confidence typically > 0
+        self.autotune_confidence_spin.setValue(0.4)
+        self.autotune_confidence_spin.setSingleStep(0.05)
+        autotune_confidence_layout.addWidget(autotune_confidence_label)
+        autotune_confidence_layout.addWidget(self.autotune_confidence_spin)
+        autotune_layout.addLayout(autotune_confidence_layout)
+
+        autotune_controls.setLayout(autotune_layout)
+        left_panel_layout.addWidget(autotune_controls)
+
+        # AI Source Separation controls
+        separation_controls = QGroupBox("AI Source Separation (Spleeter)")
+        separation_layout = QVBoxLayout()
+
+        self.separation_check = QCheckBox("Enable Separation")
+        separation_layout.addWidget(self.separation_check)
+
+        separation_model_layout = QHBoxLayout()
+        separation_model_label = QLabel("Model:")
+        self.separation_model_combo = QComboBox()
+        self.separation_model_combo.addItems([
+            "spleeter:2stems",
+            "spleeter:4stems",
+            "spleeter:5stems"
+        ])
+        separation_model_layout.addWidget(separation_model_label)
+        separation_model_layout.addWidget(self.separation_model_combo)
+        separation_layout.addLayout(separation_model_layout)
+
+        # Output directory for stems - for now, a fixed default is used in main.py
+        # Later, can add QLineEdit and QFileDialog to select this
+        # self.stems_output_dir_label = QLabel("Output Directory: (default used)")
+        # separation_layout.addWidget(self.stems_output_dir_label)
+
+        separation_controls.setLayout(separation_layout)
+        left_panel_layout.addWidget(separation_controls)
+
+        left_panel_layout.addStretch()
+
+        controls_layout.addLayout(left_panel_layout)
         
         # Right panel - Effect racks
         effects_panel = QVBoxLayout()
@@ -384,7 +457,14 @@ class PremiermixxGUI(QMainWindow):
             'pitch_steps': self.pitch_spin.value(),
             'add_effects': self.effects_check.isChecked(),
             'beat_slice': self.beat_slice_check.isChecked(),
-            'add_sidechain': self.sidechain_check.isChecked()
+            'add_sidechain': self.sidechain_check.isChecked(),
+            'apply_autotune': self.autotune_check.isChecked(),
+            'autotune_strength': self.autotune_strength_spin.value(),
+            'autotune_model': self.autotune_model_combo.currentText(),
+            'autotune_confidence': self.autotune_confidence_spin.value(),
+            'apply_source_separation': self.separation_check.isChecked(),
+            'spleeter_model': self.separation_model_combo.currentText(),
+            'stems_output_dir': 'gui_separated_stems' # Default output dir for GUI initiated separations
         }
 
         self.worker = RemixWorker(self.input_file, self.output_file, params)
